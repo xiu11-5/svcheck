@@ -1,0 +1,12 @@
+# 忽略编译产物
+/svcheck
+/svcheck-*
+*.exe
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
