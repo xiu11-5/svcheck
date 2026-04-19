@@ -1,0 +1,61 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build binaries
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -ldflags="-s -w" -o dist/svcheck-linux-amd64 .
+          CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build -ldflags="-s -w" -o dist/svcheck-linux-arm64 .
+          CGO_ENABLED=0 GOOS=darwin  GOARCH=amd64 go build -ldflags="-s -w" -o dist/svcheck-darwin-amd64 .
+          CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -ldflags="-s -w" -o dist/svcheck-darwin-arm64 .
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o dist/svcheck-windows-amd64.exe .
+          sha256sum dist/* > dist/sha256sum.txt
+
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/svcheck-linux-amd64
+            dist/svcheck-linux-arm64
+            dist/svcheck-darwin-amd64
+            dist/svcheck-darwin-arm64
+            dist/svcheck-windows-amd64.exe
+            dist/sha256sum.txt
+          generate_release_notes: true
+          append_body: true
+          body: |
+            ## 安装
+
+            Linux amd64:
+            ```bash
+            curl -sL https://github.com/${{ github.repository }}/releases/latest/download/svcheck-linux-amd64 -o svcheck && chmod +x svcheck && sudo mv svcheck /usr/local/bin/
+            ```
+
+            Go install:
+            ```bash
+            go install github.com/xiu11-5/svcheck@latest
+            ```
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
