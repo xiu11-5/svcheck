@@ -51,6 +51,17 @@ jobs:
             Linux amd64:
             ```bash
             curl -sL https://github.com/${{ github.repository }}/releases/latest/download/svcheck-linux-amd64 -o svcheck && chmod +x svcheck && sudo mv svcheck /usr/local/bin/
+
+            ```
+            Windows (PowerShell):
+            ```bash
+            Invoke-WebRequest -Uri https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/svcheck-windows-amd64.exe -OutFile svcheck.exe
+            ```
+            macOS (Apple Silicon):
+            ```bash
+            curl -sL https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/svcheck-darwin-arm64 -o svcheck \
+                 && chmod +x svcheck \
+                 && sudo mv svcheck /usr/local/bin/
             ```
 
             Go install:
