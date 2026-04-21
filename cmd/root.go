@@ -118,9 +118,9 @@ func printReport(h *collector.HostInfo) {
 	}
 
 	fmt.Printf("\n%s\n", bold("╔════════════════════════════════════════════════════════════════╗"))
-	fmt.Printf("%s  %s%s\n", bold("║"), cyan("主机巡检报告"), bold("                                              ║"))
-	fmt.Printf("%s  %s%s\n", bold("║"), fmt.Sprintf("主机: %s | 系统: %s/%s", hostname, h.OS, h.Arch), bold("                        ║"))
-	fmt.Printf("%s  %s%s\n", bold("║"), fmt.Sprintf("时间: %s", time.Now().Format("2006-01-02 15:04:05")), bold("                        ║"))
+	fmt.Printf("%s  %s%s\n", bold("║"), cyan("主机巡检报告"), bold("                                                  ║"))
+	fmt.Printf("%s  %s%s\n", bold("║"), fmt.Sprintf("主机: %s | 系统: %s/%s", hostname, h.OS, h.Arch), bold("                             ║"))
+	fmt.Printf("%s  %s%s\n", bold("║"), fmt.Sprintf("时间: %s", time.Now().Format("2006-01-02 15:04:05")), bold("                                     ║"))
 	fmt.Printf("%s\n", bold("╚════════════════════════════════════════════════════════════════╝"))
 
 	// CPU
