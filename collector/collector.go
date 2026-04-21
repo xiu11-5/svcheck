@@ -1,8 +1,10 @@
 package collector
 
 import (
+	"encoding/json"
 	"fmt"
 	"runtime"
+	"sort"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
@@ -10,44 +12,67 @@ import (
 	"github.com/shirou/gopsutil/v3/load"
 	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/shirou/gopsutil/v3/net"
+	"github.com/shirou/gopsutil/v3/process"
 )
 
 // HostInfo 主机基本信息
 type HostInfo struct {
-	Hostname    string
-	OS          string
-	Arch        string
-	Uptime      string
-	CPUModel    string
-	CPUCores    int
-	CPUPercent  float64
-	LoadAvg     *load.AvgStat
-	MemTotal    uint64
-	MemUsed     uint64
-	MemPercent  float64
-	SwapTotal   uint64
-	SwapUsed    uint64
-	SwapPercent float64
-	DiskParts   []DiskInfo
-	NetIO       *NetIOInfo
+	Hostname    string         `json:"hostname"`
+	OS          string         `json:"os"`
+	Arch        string         `json:"arch"`
+	Uptime      string         `json:"uptime"`
+	CPUModel    string         `json:"cpu_model"`
+	CPUCores    int            `json:"cpu_cores"`
+	CPUPercent  float64        `json:"cpu_percent"`
+	LoadAvg     *load.AvgStat  `json:"load_avg,omitempty"`
+	MemTotal    uint64         `json:"mem_total"`
+	MemUsed     uint64         `json:"mem_used"`
+	MemPercent  float64        `json:"mem_percent"`
+	SwapTotal   uint64         `json:"swap_total"`
+	SwapUsed    uint64         `json:"swap_used"`
+	SwapPercent float64        `json:"swap_percent"`
+	DiskParts   []DiskInfo     `json:"disk_parts"`
+	NetIO       *NetIOInfo     `json:"net_io,omitempty"`
+	DiskIO      *DiskIOInfo    `json:"disk_io,omitempty"`
+	TopCPU      []ProcessInfo  `json:"top_cpu,omitempty"`
+	TopMem      []ProcessInfo  `json:"top_mem,omitempty"`
 }
 
 // DiskInfo 磁盘分区信息
 type DiskInfo struct {
-	Device     string
-	Mountpoint string
-	Fstype     string
-	Total      uint64
-	Used       uint64
-	Percent    float64
+	Device     string  `json:"device"`
+	Mountpoint string  `json:"mountpoint"`
+	Fstype     string  `json:"fstype"`
+	Total      uint64  `json:"total"`
+	Used       uint64  `json:"used"`
+	Percent    float64 `json:"percent"`
 }
 
 // NetIOInfo 网络流量
 type NetIOInfo struct {
-	BytesSent   uint64
-	BytesRecv   uint64
-	PacketsSent uint64
-	PacketsRecv uint64
+	BytesSent   uint64 `json:"bytes_sent"`
+	BytesRecv   uint64 `json:"bytes_recv"`
+	PacketsSent uint64 `json:"packets_sent"`
+	PacketsRecv uint64 `json:"packets_recv"`
+}
+
+// DiskIOInfo 磁盘IO统计
+type DiskIOInfo struct {
+	ReadBytes  uint64 `json:"read_bytes"`
+	WriteBytes uint64 `json:"write_bytes"`
+	ReadCount  uint64 `json:"read_count"`
+	WriteCount uint64 `json:"write_count"`
+	ReadTime   uint64 `json:"read_time"`
+	WriteTime  uint64 `json:"write_time"`
+}
+
+// ProcessInfo 进程信息
+type ProcessInfo struct {
+	Pid       int32   `json:"pid"`
+	Name      string  `json:"name"`
+	CPUPercent float64 `json:"cpu_percent"`
+	MemPercent float64 `json:"mem_percent"`
+	MemRSS     uint64  `json:"mem_rss"`
 }
 
 // Collect 采集本机所有指标
@@ -102,7 +127,7 @@ func Collect() (*HostInfo, error) {
 			if err != nil || usage == nil {
 				continue
 			}
-			// 只显示有意义的分区 (>1GB) 且常见文件系统
+			// 只显示有意义的分区 (>1GB)
 			if usage.Total < 1<<30 {
 				continue
 			}
@@ -129,7 +154,92 @@ func Collect() (*HostInfo, error) {
 		}
 	}
 
+	// 磁盘 IO
+	ioCounters, err := disk.IOCounters()
+	if err == nil && len(ioCounters) > 0 {
+		var totalReadBytes, totalWriteBytes uint64
+		var totalReadCount, totalWriteCount uint64
+		var totalReadTime, totalWriteTime uint64
+
+		for _, io := range ioCounters {
+			totalReadBytes += io.ReadBytes
+			totalWriteBytes += io.WriteBytes
+			totalReadCount += io.ReadCount
+			totalWriteCount += io.WriteCount
+			totalReadTime += io.ReadTime
+			totalWriteTime += io.WriteTime
+		}
+		h.DiskIO = &DiskIOInfo{
+			ReadBytes:  totalReadBytes,
+			WriteBytes: totalWriteBytes,
+			ReadCount:  totalReadCount,
+			WriteCount: totalWriteCount,
+			ReadTime:   totalReadTime,
+			WriteTime:  totalWriteTime,
+		}
+	}
+
+	// Top 进程
+	h.TopCPU, h.TopMem = getTopProcesses(5)
+
 	return h, nil
+}
+
+// getTopProcesses 获取CPU和内存占用最高的进程
+func getTopProcesses(n int) (topCPU, topMem []ProcessInfo) {
+	processes, err := process.Processes()
+	if err != nil {
+		return nil, nil
+	}
+
+	var cpuPercent, memPercent float64
+	var memRSS uint64
+	var name string
+
+	for _, p := range processes {
+		name, _ = p.Name()
+		cpuPercent, _ = p.CPUPercent()
+		memPercent32, _ := p.MemoryPercent()
+		memPercent = float64(memPercent32)
+		memInfo, _ := p.MemoryInfo()
+		if memInfo != nil {
+			memRSS = memInfo.RSS
+		}
+
+		proc := ProcessInfo{
+			Pid:        p.Pid,
+			Name:       name,
+			CPUPercent: cpuPercent,
+			MemPercent: float64(memPercent),
+			MemRSS:     memRSS,
+		}
+
+		topCPU = append(topCPU, proc)
+		topMem = append(topMem, proc)
+	}
+
+	// 按CPU排序
+	sort.Slice(topCPU, func(i, j int) bool {
+		return topCPU[i].CPUPercent > topCPU[j].CPUPercent
+	})
+	if len(topCPU) > n {
+		topCPU = topCPU[:n]
+	}
+
+	// 按内存排序
+	sort.Slice(topMem, func(i, j int) bool {
+		return topMem[i].MemPercent > topMem[j].MemPercent
+	})
+	if len(topMem) > n {
+		topMem = topMem[:n]
+	}
+
+	return topCPU, topMem
+}
+
+// ToJSON 输出JSON格式
+func (h *HostInfo) ToJSON() ([]byte, error) {
+	return json.MarshalIndent(h, "", "  ")
 }
 
 // FormatBytes 格式化字节数

@@ -65,36 +65,48 @@ var rootCmd = &cobra.Command{
 	Short: "服务巡检工具 - 一键采集系统状态",
 	Long:  `svcheck 采集本机 CPU/内存/磁盘/网络/负载指标，输出巡检报告。`,
 	Run: func(cmd *cobra.Command, args []string) {
-		if watchMode {
+		if jsonOutput {
+			info, err := collector.Collect()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "采集失败: %v\n", err)
+				os.Exit(1)
+			}
+			printJSON(info)
+		} else if watchMode {
 			runWatch()
 		} else {
-			runOnce()
+			info, err := collector.Collect()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "采集失败: %v\n", err)
+				os.Exit(1)
+			}
+			printReport(info)
 		}
 	},
 }
 
-func runOnce() {
-	info, err := collector.Collect()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "采集失败: %v\n", err)
-		os.Exit(1)
-	}
-	printReport(info)
-}
-
 func runWatch() {
 	for {
-		info, err := collector.Collect()
+		h, err := collector.Collect()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "采集失败: %v\n", err)
 			os.Exit(1)
 		}
 		// 清屏
 		fmt.Print("\033[2J\033[H")
-		printReport(info)
+		printReport(h)
 		fmt.Printf("\n下次刷新: %ds 后 (Ctrl+C 退出)\n", watchSeconds)
 		time.Sleep(time.Duration(watchSeconds) * time.Second)
 	}
+}
+
+func printJSON(h *collector.HostInfo) {
+	data, err := h.ToJSON()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "JSON 序列化失败: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println(string(data))
 }
 
 func printReport(h *collector.HostInfo) {
@@ -153,9 +165,33 @@ func printReport(h *collector.HostInfo) {
 	// 网络
 	fmt.Printf("\n%s 网络\n", bold("──"))
 	if h.NetIO != nil {
-		fmt.Printf("  累计发送: %s (%d pkts)  |  累计接收: %s (%d pkts)\n",
+		fmt.Printf(" 累计发送: %s (%d pkts) | 累计接收: %s (%d pkts)\n",
 			collector.FormatBytes(h.NetIO.BytesSent), h.NetIO.PacketsSent,
 			collector.FormatBytes(h.NetIO.BytesRecv), h.NetIO.PacketsRecv)
+	}
+
+	// 磁盘IO
+	if h.DiskIO != nil {
+		fmt.Printf("\n%s 磁盘IO\n", bold("──"))
+		fmt.Printf(" 读取: %s (%d 次) | 写入: %s (%d 次)\n",
+			collector.FormatBytes(h.DiskIO.ReadBytes), h.DiskIO.ReadCount,
+			collector.FormatBytes(h.DiskIO.WriteBytes), h.DiskIO.WriteCount)
+	}
+
+	// Top进程
+	if len(h.TopCPU) > 0 {
+		fmt.Printf("\n%s Top进程 (按CPU)\n", bold("──"))
+		for i, p := range h.TopCPU {
+			fmt.Printf(" %2d. %-30s PID:%d CPU:%.1f%% MEM:%.1f%%\n",
+				i+1, p.Name, p.Pid, p.CPUPercent, p.MemPercent)
+		}
+	}
+	if len(h.TopMem) > 0 {
+		fmt.Printf("\n%s Top进程 (按内存)\n", bold("──"))
+		for i, p := range h.TopMem {
+			fmt.Printf(" %2d. %-30s PID:%d MEM:%.1f%% RSS:%s\n",
+				i+1, p.Name, p.Pid, p.MemPercent, collector.FormatBytes(p.MemRSS))
+		}
 	}
 
 	// 汇总
